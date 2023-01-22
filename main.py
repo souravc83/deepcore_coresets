@@ -156,11 +156,14 @@ def main():
                                   selection_method=args.uncertainty,
                                   balance=args.balance,
                                   greedy=args.submodular_greedy,
-                                  function=args.submodular
+                                  function=args.submodular,
+                                  save_path=args.save_path
                                   )
             method = methods.__dict__[args.selection](dst_train, args, args.fraction, args.seed, **selection_args)
             subset = method.select()
-        print(len(subset["indices"]))
+
+        print(f"Number of points chosen: {len(subset['indices'])}")
+        
 
         # Augmentation
         if args.dataset == "CIFAR10" or args.dataset == "CIFAR100":

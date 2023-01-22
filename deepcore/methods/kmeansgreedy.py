@@ -2,12 +2,23 @@ from .earlytrain import EarlyTrain
 import torch
 import numpy as np
 import os   
+import faiss
 from .methods_utils import euclidean_dist
 from ..nets.nets_utils import MyDataParallel
 
+def get_selected_index(data, num_clusters, niter=20):
+    verbose = True
+    d = data.shape[1]
+    kmeans = faiss.Kmeans(d, num_clusters, niter=niter, verbose=verbose, gpu=True)
+    kmeans.train(data.cpu().numpy())
+    index = faiss.IndexFlatL2 (d)
+    index.add (data.cpu().numpy())
+    D, I = index.search (kmeans.centroids, 1)
+    del D 
+    return I.squeeze()      
 
-def k_center_greedy(matrix, budget: int, metric, device, random_seed=None, index=None, already_selected=None,
-                    print_freq: int = 20):
+
+def k_means_greedy(matrix, budget: int, device, random_seed=None, print_freq: int = 20):
     if type(matrix) == torch.Tensor:
         assert matrix.dim() == 2
     elif type(matrix) == np.ndarray:
@@ -21,52 +32,12 @@ def k_center_greedy(matrix, budget: int, metric, device, random_seed=None, index
         raise ValueError("Illegal budget size.")
     elif budget > sample_num:
         budget = sample_num
-
-    if index is not None:
-        assert matrix.shape[0] == len(index)
-    else:
-        index = np.arange(sample_num)
-
-    assert callable(metric)
-
-    already_selected = np.array(already_selected)
-
-    with torch.no_grad():
-        np.random.seed(random_seed)
-        if already_selected.__len__() == 0:
-            select_result = np.zeros(sample_num, dtype=bool)
-            # Randomly select one initial point.
-            already_selected = [np.random.randint(0, sample_num)]
-            budget -= 1
-            select_result[already_selected] = True
-        else:
-            select_result = np.in1d(index, already_selected)
-
-        num_of_already_selected = np.sum(select_result)
-
-        # Initialize a (num_of_already_selected+budget-1)*sample_num matrix storing distances of pool points from
-        # each clustering center.
-        dis_matrix = -1 * torch.ones([num_of_already_selected + budget - 1, sample_num], requires_grad=False).to(device)
-
-        dis_matrix[:num_of_already_selected, ~select_result] = metric(matrix[select_result], matrix[~select_result])
-
-        mins = torch.min(dis_matrix[:num_of_already_selected, :], dim=0).values
-
-        for i in range(budget):
-            if i % print_freq == 0:
-                print("| Selecting [%3d/%3d]" % (i + 1, budget))
-            p = torch.argmax(mins).item()
-            select_result[p] = True
-
-            if i == budget - 1:
-                break
-            mins[p] = -1
-            dis_matrix[num_of_already_selected + i, ~select_result] = metric(matrix[[p]], matrix[~select_result])
-            mins = torch.min(mins, dis_matrix[num_of_already_selected + i])
-    return index[select_result]
+    selected_index = get_selected_index(data=matrix, num_clusters=budget)
+    
+    return selected_index
 
 
-class kCenterGreedy(EarlyTrain):
+class kMeansGreedy(EarlyTrain):
     def __init__(self, dst_train, args, fraction=0.5, random_seed=None, epochs=0,
                  specific_model="ResNet18", balance: bool = False, already_selected=[], metric="euclidean",
                  torchvision_pretrain: bool = True, **kwargs):
@@ -151,9 +122,9 @@ class kCenterGreedy(EarlyTrain):
 
         self.model.no_grad = False
 
-        filename = 'embedding_matrix.pt'
-        full_fname = os.path.join(self.save_path, filename)
-        torch.save(torch.cat(matrix, dim=0), full_fname)
+        #filename = 'embedding_matrix.pt'
+        #full_fname = os.path.join(self.save_path, filename)
+        #torch.save(torch.cat(matrix, dim=0), full_fname)
 
         return torch.cat(matrix, dim=0)
 
@@ -166,28 +137,24 @@ class kCenterGreedy(EarlyTrain):
 
     def select(self, **kwargs):
         self.run()
+        self.balance = False 
+
         if self.balance:
             selection_result = np.array([], dtype=np.int32)
             for c in range(self.args.num_classes):
                 class_index = np.arange(self.n_train)[self.dst_train.targets == c]
 
-                selection_result = np.append(selection_result, k_center_greedy(self.construct_matrix(class_index),
-                                                                               budget=round(
-                                                                                   self.fraction * len(class_index)),
-                                                                               metric=self.metric,
-                                                                               device=self.args.device,
-                                                                               random_seed=self.random_seed,
-                                                                               index=class_index,
-                                                                               already_selected=self.already_selected[
-                                                                                   np.in1d(self.already_selected,
-                                                                                           class_index)],
-                                                                               print_freq=self.args.print_freq))
+            selection_result = k_means_greedy(matrix, budget=self.coreset_size,
+                                               device=self.args.device,
+                                               random_seed=self.random_seed,
+                                               )
+
         else:
             matrix = self.construct_matrix()
             del self.model_optimizer
             del self.model
-            selection_result = k_center_greedy(matrix, budget=self.coreset_size,
-                                               metric=self.metric, device=self.args.device,
+            selection_result = k_means_greedy(matrix, budget=self.coreset_size,
+                                               device=self.args.device,
                                                random_seed=self.random_seed,
-                                               already_selected=self.already_selected, print_freq=self.args.print_freq)
+                                               )
         return {"indices": selection_result}

@@ -11,6 +11,7 @@ from .grand import *
 from .gradmatch import *
 from .herding import *
 from .kcentergreedy import *
+from .kmeansgreedy import *
 from .submodular import *
 from .uncertainty import *
 from .uniform import *
