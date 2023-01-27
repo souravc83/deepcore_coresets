@@ -15,4 +15,6 @@ from .kmeansgreedy import *
 from .submodular import *
 from .uncertainty import *
 from .uniform import *
+from .el2n import *
+from .el2n_kmeans import *
 

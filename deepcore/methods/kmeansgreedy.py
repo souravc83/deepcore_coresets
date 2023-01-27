@@ -6,19 +6,30 @@ import faiss
 from .methods_utils import euclidean_dist
 from ..nets.nets_utils import MyDataParallel
 
-def get_selected_index(data, num_clusters, niter=20):
+def get_selected_index(data, num_clusters, d_intermediate=512, niter=20):
     verbose = True
     d = data.shape[1]
-    kmeans = faiss.Kmeans(d, num_clusters, niter=niter, verbose=verbose, gpu=True)
-    kmeans.train(data.cpu().numpy())
-    index = faiss.IndexFlatL2 (d)
-    index.add (data.cpu().numpy())
+    data_np = data.cpu().numpy()
+    
+    # Apply PCA, is d_intermediate is smaller than d
+    if d_intermediate == d:
+        data_np_small = data_np
+    else:
+        mat = faiss.PCAMatrix (d, d_intermediate)
+        mat.train(data_np)
+        data_np_small = mat.apply(data_np)
+      
+    
+    kmeans = faiss.Kmeans(d_intermediate, num_clusters, niter=niter, verbose=verbose, gpu=True)
+    kmeans.train(data_np_small)
+    index = faiss.IndexFlatL2 (d_intermediate)
+    index.add (data_np_small)
     D, I = index.search (kmeans.centroids, 1)
     del D 
     return I.squeeze()      
 
 
-def k_means_greedy(matrix, budget: int, device, random_seed=None, print_freq: int = 20):
+def k_means_greedy(matrix, budget: int, device, d_intermediate, random_seed=None, index=None, print_freq: int = 20):
     if type(matrix) == torch.Tensor:
         assert matrix.dim() == 2
     elif type(matrix) == np.ndarray:
@@ -30,16 +41,28 @@ def k_means_greedy(matrix, budget: int, device, random_seed=None, print_freq: in
 
     if budget < 0:
         raise ValueError("Illegal budget size.")
+
     elif budget > sample_num:
         budget = sample_num
-    selected_index = get_selected_index(data=matrix, num_clusters=budget)
+
+    if index is not None:
+        assert matrix.shape[0] == len(index)
+    else:
+        index = np.arange(sample_num)
+
+
+    if budget < 0:
+        raise ValueError("Illegal budget size.")
+    elif budget > sample_num:
+        budget = sample_num
+    selected_index = get_selected_index(data=matrix, num_clusters=budget, d_intermediate=d_intermediate)
     
-    return selected_index
+    return index[selected_index]
 
 
 class kMeansGreedy(EarlyTrain):
     def __init__(self, dst_train, args, fraction=0.5, random_seed=None, epochs=0,
-                 specific_model="ResNet18", balance: bool = False, already_selected=[], metric="euclidean",
+                 specific_model="ResNet18", balance: bool = False, d_intermediate = 12, already_selected=[], metric="euclidean",
                  torchvision_pretrain: bool = True, **kwargs):
         super().__init__(dst_train, args, fraction, random_seed, epochs=epochs, specific_model=specific_model,
                          torchvision_pretrain=torchvision_pretrain, **kwargs)
@@ -68,6 +91,7 @@ class kMeansGreedy(EarlyTrain):
             self.construct_matrix = _construct_matrix
 
         self.balance = balance
+        self.d_intermediate = d_intermediate
 
         if 'save_path' in kwargs:
             self.save_path = kwargs['save_path']
@@ -137,17 +161,23 @@ class kMeansGreedy(EarlyTrain):
 
     def select(self, **kwargs):
         self.run()
-        self.balance = False 
 
         if self.balance:
             selection_result = np.array([], dtype=np.int32)
             for c in range(self.args.num_classes):
                 class_index = np.arange(self.n_train)[self.dst_train.targets == c]
 
-            selection_result = k_means_greedy(matrix, budget=self.coreset_size,
-                                               device=self.args.device,
-                                               random_seed=self.random_seed,
-                                               )
+                matrix = self.construct_matrix(class_index)
+                selection_result = np.append(
+                    selection_result,
+                    k_means_greedy(matrix, 
+                                   budget=round(self.fraction * len(class_index)),
+                                   device=self.args.device,
+                                   d_intermediate=self.d_intermediate,
+                                   random_seed=self.random_seed,
+                                   index=class_index,
+                    )
+                )
 
         else:
             matrix = self.construct_matrix()
@@ -155,6 +185,7 @@ class kMeansGreedy(EarlyTrain):
             del self.model
             selection_result = k_means_greedy(matrix, budget=self.coreset_size,
                                                device=self.args.device,
+                                               d_intermediate=self.d_intermediate,
                                                random_seed=self.random_seed,
                                                )
         return {"indices": selection_result}

@@ -82,6 +82,12 @@ def main():
     parser.add_argument('--submodular', default="GraphCut", help="specifiy submodular function to use")
     parser.add_argument('--submodular_greedy', default="LazyGreedy", help="specifiy greedy algorithm for submodular optimization")
     parser.add_argument('--uncertainty', default="Entropy", help="specifiy uncertanty score to use")
+    
+    parser.add_argument('--kmeans_d_intermediate', default=512, type=int, help="specify reduced dimension of PCA")
+    parser.add_argument('--kmeans_el2n_scoring_method', default='max_score', type=str, help="how to score data points from k-means")
+    parser.add_argument('--el2n_epochs', default=10, type=int, help="number of epochs to pretrain, for el2n score calculation")
+    parser.add_argument('--el2n_repeat', default=2, type=int, help="number of times to repeat, to get expectation of EL2N scores")
+
 
     # Checkpoint and resumption
     parser.add_argument('--save_path', "-sp", type=str, default='', help='path to save results (default: do not save)')
@@ -157,7 +163,11 @@ def main():
                                   balance=args.balance,
                                   greedy=args.submodular_greedy,
                                   function=args.submodular,
-                                  save_path=args.save_path
+                                  save_path=args.save_path,
+                                  el2n_epochs=args.el2n_epochs,
+                                  el2n_repeat=args.el2n_repeat,
+                                  d_intermediate=args.kmeans_d_intermediate,
+                                  scoring_method=args.kmeans_el2n_scoring_method,
                                   )
             method = methods.__dict__[args.selection](dst_train, args, args.fraction, args.seed, **selection_args)
             subset = method.select()
