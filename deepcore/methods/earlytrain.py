@@ -57,6 +57,10 @@ class EarlyTrain(CoresetMethod):
         self.n_pretrain_size = round(
             self.fraction_pretrain * (self.n_pretrain if self.if_dst_pretrain else self.n_train))
         self.dst_test = dst_test
+        
+        # this is to calculate grand score, since we do not want to update the weights in each minibatch
+        # in the last epoch, when we calculate grand scores
+        self.no_minibatch_update_flag = False 
 
     def train(self, epoch, list_of_train_idx, **kwargs):
         """ Train model for one epoch """
@@ -93,7 +97,7 @@ class EarlyTrain(CoresetMethod):
             loss.backward()
             # if we are calculating grand scores, we don't want the gradients to change
             # in the last epoch
-            if self.__class__.__name__ == 'GrandSecond' and epoch==(self.epochs-1):
+            if self.no_minibatch_update_flag and epoch==(self.epochs-1):
                 self.calc_grand_scores(trainset_permutation_inds[i])
             else:
                 self.model_optimizer.step()

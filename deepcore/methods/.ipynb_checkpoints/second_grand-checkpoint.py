@@ -28,6 +28,8 @@ class GrandSecond(EarlyTrain):
         
         # to calculate grand scores for each sample, we will need to make the batch size = 1
         self.args.selection_batch = 1
+        self.no_minibatch_update_flag = True 
+
         
         if 'save_path' in kwargs:
             self.save_path = kwargs['save_path']

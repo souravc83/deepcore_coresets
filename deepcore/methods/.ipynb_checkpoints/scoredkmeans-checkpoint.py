@@ -117,7 +117,7 @@ def k_means_greedy_el2n(matrix, budget: int, el2n_score, device, d_intermediate=
 class ScoredkMeans(EarlyTrain):
     def __init__(self, dst_train, args, fraction=0.5, random_seed=None, epochs=10, num_repeat=2,
                  specific_model=None, balance=False, already_selected=[], metric="euclidean",
-                 torchvision_pretrain: bool = True, score_epochs = 0, d_intermediate=24, 
+                 torchvision_pretrain: bool = True, score_epochs = 1, d_intermediate=24, 
                  eg_selection_method="grand", scoring_method="max_score", **kwargs):
 
         super().__init__(dst_train, args, fraction, random_seed, epochs=epochs, specific_model=specific_model,
@@ -133,13 +133,14 @@ class ScoredkMeans(EarlyTrain):
         self.specific_model = specific_model
         self.repeat = num_repeat
         self.score_epochs = score_epochs 
+        
+        # example selection method: Grand/EL2N
         self.eg_selection_method = eg_selection_method
         if eg_selection_method not in ['grand', 'el2n']:
             raise ValueError(f"""
                 eg_selection_method is {eg_selection_method}, 
                 should be one of 'grand', 'el2n'
                 """)
-
         
         self.balance = balance
         self.d_intermediate = d_intermediate
@@ -176,11 +177,14 @@ class ScoredkMeans(EarlyTrain):
             self.save_path = kwargs['save_path']
         else:
             self.save_path = None
+        
+        # TODO: add this to EarlyTrain
+        self.checkpoint_name = kwargs['checkpoint_name']
 
 
 
 
-    def while_update(self, outputs, loss, targets, epoch, batch_idx, batch_size):
+    def while_update(self, outputs, loss, targets, epoch, batch_idx, batch_size, batch_indices):
         if batch_idx % self.args.print_freq == 0:
             print('| Epoch [%3d/%3d] Iter[%3d/%3d]\t\tLoss: %.4f' % (
                 epoch, self.epochs, batch_idx + 1, (self.n_train // batch_size) + 1, loss.item()))
@@ -212,6 +216,12 @@ class ScoredkMeans(EarlyTrain):
 
 
     def finish_run(self):
+        if self.eg_selection_method == 'grand':
+            if isinstance(self.model, MyDataParallel):
+                self.model = self.model.module
+            return
+
+        # this part will be executed only for El2N scores
 
         self.model.eval()
 
@@ -258,10 +268,11 @@ class ScoredkMeans(EarlyTrain):
         
         # save the El2N scores
         if self.save_path:
-            time_now = datetime.now()
-            filename = os.path.join(self.save_path, f'el2n_scores_{time_now}.csv')
+            filename = os.path.join(self.save_path, self.checkpoint_name, f'el2n_scores.csv')
         
             np.savetxt(filename, self.norm_mean, delimiter=',')
+        #restore the epochs
+        self.epochs = self.kmeans_epochs 
         
         return self.norm_mean
     
@@ -278,12 +289,17 @@ class ScoredkMeans(EarlyTrain):
         )
 
     
-    def _get_grand_score(self):
+    def _get_grand_scores(self):
         # to calculate grand scores for each sample, we will need to make the batch size = 1
         orig_batch_size = self.args.selection_batch
         self.args.selection_batch = 1
+        # Further, we will need to switch off minibatch update in the last iteration
+        self.no_minibatch_update_flag = True
+        self.epochs = self.score_epochs
+        orig_print_freq = self.args.print_freq
+        self.args.print_freq = 128 * orig_print_freq
         
-        self.norm_matrix = torch.zeros([self.n_train, self.repeat],
+        self.grand_norm_matrix = torch.zeros([self.n_train, self.repeat],
                                        requires_grad=False).to(self.args.device)
 
         for self.cur_repeat in range(self.repeat):
@@ -293,15 +309,15 @@ class ScoredkMeans(EarlyTrain):
         
         self.norm_mean = torch.mean(self.grand_norm_matrix, dim=1).cpu().detach().numpy()
         
-        # restore the batch size
+        # restore the batch size and minibatch update flag
         self.args.selection_batch = orig_batch_size
-        # TODO: add a grand score flag to stop the updating of scores
+        self.no_minibatch_update_flag = False
+        self.epochs = self.kmeans_epochs
+        self.args.print_freq = orig_print_freq
         
         # save the Grand scores
         if self.save_path:
-            time_now = datetime.now()
-            filename = os.path.join(self.save_path, f'grand_scores_{time_now}.csv')
-        
+            filename = os.path.join(self.save_path, self.checkpoint_name, f'grand_scores.csv')
             np.savetxt(filename, self.norm_mean, delimiter=',')
 
         return self.norm_mean

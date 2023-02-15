@@ -89,6 +89,8 @@ def main():
     parser.add_argument('--kmeans_el2n_scoring_method', default='max_score', type=str, help="how to score data points from k-means")
     parser.add_argument('--el2n_epochs', default=10, type=int, help="number of epochs to pretrain, for el2n score calculation")
     parser.add_argument('--el2n_repeat', default=2, type=int, help="number of times to repeat, to get expectation of EL2N scores")
+    parser.add_argument('--eg_selection_method', default='grand', type=str, help="should we use grand score, or EL2N to select examples")
+
 
 
     # Checkpoint and resumption
@@ -138,7 +140,6 @@ def main():
     
     for exp in range(start_exp, args.num_exp):
         experiment_start_time = time.time()
-        logger.info(f"Experiment {exp} Started at: {experiment_start_time}")
         
         if args.save_path != "":
             checkpoint_name = "{dst}_{net}_{mtd}_exp{exp}_epoch{epc}_{dat}_{fr}_".format(dst=args.dataset,
@@ -162,6 +163,8 @@ def main():
 
             
         logger = logging.getLogger(__name__) ## module logger
+        logger.info(f"Experiment {exp} Started at: {experiment_start_time}")
+
 
         print('\n================== Exp %d ==================\n' % exp)
         print("dataset: ", args.dataset, ", model: ", args.model, ", selection: ", args.selection, ", num_ex: ",
@@ -194,10 +197,11 @@ def main():
                                   greedy=args.submodular_greedy,
                                   function=args.submodular,
                                   save_path=args.save_path,
-                                  el2n_epochs=args.el2n_epochs,
+                                  score_epochs=args.el2n_epochs,
                                   el2n_repeat=args.el2n_repeat,
                                   d_intermediate=args.kmeans_d_intermediate,
                                   scoring_method=args.kmeans_el2n_scoring_method,
+                                  eg_selection_method=args.eg_selection_method,
                                   checkpoint_name=checkpoint_name
                                   )
             method = methods.__dict__[args.selection](dst_train, args, args.fraction, args.seed, **selection_args)
@@ -367,7 +371,7 @@ def main():
             
             experiment_stop_time = time.time()
             
-            exp_duration = get_dutation(
+            exp_duration = get_duration(
                 start_time=experiment_start_time,
                 stop_time=experiment_stop_time
             )
