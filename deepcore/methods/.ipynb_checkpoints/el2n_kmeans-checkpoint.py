@@ -167,11 +167,13 @@ class EL2NkMeans(EarlyTrain):
             self.save_path = kwargs['save_path']
         else:
             self.save_path = None
+        
+        self.checkpoint_name = kwargs['checkpoint_name']
 
 
 
 
-    def while_update(self, outputs, loss, targets, epoch, batch_idx, batch_size):
+    def while_update(self, outputs, loss, targets, epoch, batch_idx, batch_size, batch_indices):
         if batch_idx % self.args.print_freq == 0:
             print('| Epoch [%3d/%3d] Iter[%3d/%3d]\t\tLoss: %.4f' % (
                 epoch, self.epochs, batch_idx + 1, (self.n_train // batch_size) + 1, loss.item()))
@@ -249,9 +251,7 @@ class EL2NkMeans(EarlyTrain):
         
         # save the El2N scores
         if self.save_path:
-            time_now = datetime.now()
-            filename = os.path.join(self.save_path, f'el2n_scores_{time_now}.csv')
-        
+            filename = os.path.join(self.save_path, self.checkpoint_name, f'el2n_scores.csv')
             np.savetxt(filename, self.norm_mean, delimiter=',')
         
         return self.norm_mean

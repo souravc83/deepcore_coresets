@@ -115,7 +115,7 @@ def k_means_greedy_el2n(matrix, budget: int, el2n_score, device, d_intermediate=
 
 
 class ScoredkMeans(EarlyTrain):
-    def __init__(self, dst_train, args, fraction=0.5, random_seed=None, epochs=10, num_repeat=2,
+    def __init__(self, dst_train, args, fraction=0.5, random_seed=None, epochs=10, el2n_repeat=2,
                  specific_model=None, balance=False, already_selected=[], metric="euclidean",
                  torchvision_pretrain: bool = True, score_epochs = 1, d_intermediate=24, 
                  eg_selection_method="grand", scoring_method="max_score", **kwargs):
@@ -131,8 +131,8 @@ class ScoredkMeans(EarlyTrain):
         
         # variables for grand/EL2N score calculation
         self.specific_model = specific_model
-        self.repeat = num_repeat
-        self.score_epochs = score_epochs 
+        self.repeat = el2n_repeat
+        self.score_epochs = score_epochs
         
         # example selection method: Grand/EL2N
         self.eg_selection_method = eg_selection_method
@@ -147,8 +147,8 @@ class ScoredkMeans(EarlyTrain):
         
         # scoring method must be one of "weighted", "max_score"
         self.scoring_method = scoring_method
-        if scoring_method not in ["weighted", "max_score"]: 
-          raise ValueError(f"scoring method is {scoring_method}")
+        if self.scoring_method not in ["weighted", "max_score"]: 
+          raise ValueError(f"scoring method is {self.scoring_method}")
 
         if already_selected.__len__() != 0:
             if min(already_selected) < 0 or max(already_selected) >= self.n_train:
@@ -180,6 +180,16 @@ class ScoredkMeans(EarlyTrain):
         
         # TODO: add this to EarlyTrain
         self.checkpoint_name = kwargs['checkpoint_name']
+        
+        print(f"""
+            Scored Kmeans running with the following criterion:
+            eg. selection: {self.eg_selection_method},
+            repeats: {self.repeat},
+            balance: {self.balance},
+            d_intermediate: {self.d_intermediate},
+            kmeans_epochs: {self.kmeans_epochs}
+            """
+        )
 
 
 
